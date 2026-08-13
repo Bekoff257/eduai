@@ -9,6 +9,7 @@ import { checkAvailableAppointmentsTool } from "@/lib/ai/tools/check-available-a
 import { createLeadTool } from "@/lib/ai/tools/create-lead";
 import { updateLeadTool } from "@/lib/ai/tools/update-lead";
 import { createAppointmentTool } from "@/lib/ai/tools/create-appointment";
+import { cancelAppointmentTool } from "@/lib/ai/tools/cancel-appointment";
 import { createFollowUpTool } from "@/lib/ai/tools/create-follow-up";
 import { getConversationHistoryTool } from "@/lib/ai/tools/get-conversation-history";
 import type { AnyToolDefinition } from "@/lib/ai/tools/types";
@@ -25,6 +26,7 @@ export const allTools: AnyToolDefinition[] = [
   createLeadTool,
   updateLeadTool,
   createAppointmentTool,
+  cancelAppointmentTool,
   createFollowUpTool,
   getConversationHistoryTool,
 ];
