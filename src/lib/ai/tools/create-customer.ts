@@ -11,7 +11,7 @@ const inputSchema = z.object({
 export const createCustomerTool = defineTool({
   name: "create_customer",
   description:
-    "Create a new customer record when the current conversation's customer needs additional details saved (e.g. they gave their name or phone number). Do NOT use this to create a duplicate of the customer already attached to this conversation — that customer record already exists.",
+    "Create a brand-new, SEPARATE customer record — for a person other than the one you're currently talking to (e.g. they're asking on behalf of a friend or relative). The customer of THIS conversation already has a record from the moment they first messaged; to save their name/phone/language, use update_customer instead, never this tool.",
   schema: inputSchema,
   handler: async (input, context) => {
     try {

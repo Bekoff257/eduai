@@ -1,6 +1,7 @@
 import { searchCustomerTool } from "@/lib/ai/tools/search-customer";
 import { getCustomerTool } from "@/lib/ai/tools/get-customer";
 import { createCustomerTool } from "@/lib/ai/tools/create-customer";
+import { updateCustomerTool } from "@/lib/ai/tools/update-customer";
 import { searchCoursesTool } from "@/lib/ai/tools/search-courses";
 import { getCourseTool } from "@/lib/ai/tools/get-course";
 import { searchCourseGroupsTool } from "@/lib/ai/tools/search-course-groups";
@@ -16,6 +17,7 @@ export const allTools: AnyToolDefinition[] = [
   searchCustomerTool,
   getCustomerTool,
   createCustomerTool,
+  updateCustomerTool,
   searchCoursesTool,
   getCourseTool,
   searchCourseGroupsTool,
