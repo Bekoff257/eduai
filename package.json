@@ -1,0 +1,44 @@
+{
+  "name": "edu-ai-ops-platform",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:verify": "node scripts/verify-migrations-structural.mjs",
+    "db:test": "npx supabase test db",
+    "db:reset": "npx supabase db reset",
+    "test:services": "node scripts/test-service-tenant-isolation.mjs",
+    "test:webhook-pipeline": "node scripts/smoke-test-webhook-pipeline.mjs",
+    "test:ai": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/test-ai-integration.mts",
+    "test:appointments": "node scripts/test-appointment-concurrency.mjs",
+    "test:dashboard": "node --env-file-if-exists=.env.local scripts/test-dashboard-auth.mjs",
+    "test:telegram-business": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/test-telegram-business-connection.mts",
+    "test:m4": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/test-m4-receptionist-features.mts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.112.2",
+    "firebase": "^12.17.1",
+    "firebase-admin": "^14.2.0",
+    "next": "16.3.0",
+    "openai": "^7.4.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.0",
+    "server-only": "^0.0.1",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.12",
+    "typescript": "^5"
+  }
+}
