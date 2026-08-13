@@ -73,7 +73,13 @@ export async function POST(request: NextRequest) {
     webhookSecret,
   });
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin;
+  // Strip any trailing slash from NEXT_PUBLIC_APP_URL before appending a
+  // path — a value like "https://example.com/" (trailing slash) would
+  // otherwise produce a double slash ("https://example.com//api/...").
+  // Telegram does not follow the 308 redirect Next.js issues to normalize
+  // that, so every webhook delivery would fail with "Wrong response from
+  // the webhook: 308 Permanent Redirect" and silently queue up undelivered.
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? request.nextUrl.origin).replace(/\/+$/, "");
   const webhookResult = await setTelegramWebhook({
     botToken: parsed.data.botToken,
     url: `${appUrl}/api/telegram/webhook/${integration.webhookToken}`,
