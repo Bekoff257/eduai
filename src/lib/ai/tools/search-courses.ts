@@ -9,7 +9,7 @@ const inputSchema = z.object({
 export const searchCoursesTool = defineTool({
   name: "search_courses",
   description:
-    "List active courses this business offers, optionally filtered by name. Returns each course's name, description, price, currency, and duration (if set). Use this before quoting prices, durations, or describing courses — never invent course names, prices, or durations. A null/missing duration means it hasn't been set — say so rather than guessing one.",
+    "List active courses this business offers, optionally filtered by name. Returns each course's name, description, price, currency, and duration (if set). Use this before quoting prices, durations, or describing courses — never invent course names, prices, durations, or currencies. Each course's price and currency are a pair — always state them together exactly as returned (e.g. price 700000 with currency UZS means \"700000 UZS\", never a different or omitted currency). A null/missing duration means it hasn't been set — say so rather than guessing one.",
   schema: inputSchema,
   handler: async (input, context) => {
     try {

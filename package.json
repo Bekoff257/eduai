@@ -16,7 +16,8 @@
     "test:appointments": "node scripts/test-appointment-concurrency.mjs",
     "test:dashboard": "node --env-file-if-exists=.env.local scripts/test-dashboard-auth.mjs",
     "test:telegram-business": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/test-telegram-business-connection.mts",
-    "test:m4": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/test-m4-receptionist-features.mts"
+    "test:m4": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/test-m4-receptionist-features.mts",
+    "test:currency": "tsx --conditions=react-server --env-file-if-exists=.env.local scripts/test-course-currency-and-claims.mts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",

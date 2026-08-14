@@ -4,9 +4,10 @@ import { useState } from "react";
 import type { BusinessSettings, WorkingHours } from "@/lib/services/business-settings";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Label, TextInput, TextArea } from "@/components/ui/field";
+import { Label, TextInput, TextArea, Select } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { formatDayOfWeek } from "@/lib/format";
+import { COMMON_CURRENCIES } from "@/lib/currencies";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
@@ -23,6 +24,7 @@ export function AISettingsClient({
   const [aiTone, setAiTone] = useState(initialSettings?.aiTone ?? "");
   const [aiEnabled, setAiEnabled] = useState(initialSettings?.aiEnabled ?? true);
   const [policies, setPolicies] = useState(initialSettings?.policies ?? "");
+  const [defaultCurrency, setDefaultCurrency] = useState(initialSettings?.defaultCurrency ?? "USD");
   const [workingHours, setWorkingHours] = useState<WorkingHours>(initialSettings?.workingHours ?? {});
   const [isSaving, setIsSaving] = useState(false);
 
@@ -52,6 +54,7 @@ export function AISettingsClient({
           aiTone: aiTone.trim(),
           aiEnabled,
           policies: policies.trim(),
+          defaultCurrency,
           workingHours,
         }),
       });
@@ -142,6 +145,26 @@ export function AISettingsClient({
           />
           <p className="mt-1.5 text-xs text-muted">
             How the AI should sound — e.g. &quot;warm and casual&quot; or &quot;formal and concise&quot;.
+          </p>
+        </div>
+
+        <div>
+          <Label htmlFor="ai-default-currency">Default currency</Label>
+          <Select
+            id="ai-default-currency"
+            value={defaultCurrency}
+            onChange={(e) => setDefaultCurrency(e.target.value)}
+            disabled={!canManage}
+          >
+            {COMMON_CURRENCIES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1.5 text-xs text-muted">
+            Pre-fills the currency when you add a new course. Each course still has its own currency —
+            change a specific course&apos;s currency on the Courses page if it differs from this default.
           </p>
         </div>
       </Card>

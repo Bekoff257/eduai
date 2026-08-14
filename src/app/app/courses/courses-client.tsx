@@ -17,9 +17,11 @@ import { GroupsPanel } from "@/app/app/courses/groups-panel";
 export function CoursesClient({
   initialCourses,
   initialGroups,
+  defaultCurrency,
 }: {
   initialCourses: Course[];
   initialGroups: CourseGroup[];
+  defaultCurrency: string;
 }) {
   const { showToast } = useToast();
   const [courses, setCourses] = useState(initialCourses);
@@ -154,6 +156,7 @@ export function CoursesClient({
       {formCourse && (
         <CourseFormModal
           course={formCourse === "new" ? null : formCourse}
+          defaultCurrency={defaultCurrency}
           onClose={() => setFormCourse(null)}
           onSaved={(saved) => {
             setCourses((prev) => {

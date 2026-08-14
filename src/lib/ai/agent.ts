@@ -14,6 +14,7 @@ import { timed } from "@/lib/timing";
 import type { AgentAction, AgentResponse, ToolContext } from "@/lib/ai/types";
 import type { Message } from "@/lib/services/messages";
 import type { BusinessSettings } from "@/lib/services/business-settings";
+import type { Course } from "@/lib/services/courses";
 
 const MAX_TOOL_ROUNDS = 5;
 
@@ -71,8 +72,20 @@ export async function runAgent(params: {
    * fetches it itself, same as before — this parameter is purely an
    * optional optimization, never a behavior change. */
   businessSettings?: BusinessSettings | null;
+  /** Pre-fetched active courses, only meaningful when isFirstReply is true.
+   * The webhook route fetches these in parallel with settings/history/
+   * first-reply detection (see route.ts) so the system prompt can hand the
+   * model real course data up front — this is what lets a first reply
+   * answer in ONE OpenRouter round instead of a mandatory
+   * "call search_courses, then answer" two-round trip. search_courses
+   * remains available as a tool for anything this snapshot doesn't cover
+   * (see system-prompt.ts). Omit/undefined on non-first replies, where the
+   * model is expected to call search_courses itself if it needs course
+   * data — that path is rarer and doesn't justify fetching courses on
+   * every single message. */
+  activeCourses?: Course[];
 }): Promise<AgentResponse> {
-  const { systemContext, history, incomingText, isFirstReply = false } = params;
+  const { systemContext, history, incomingText, isFirstReply = false, activeCourses } = params;
 
   let client: OpenAI;
   try {
@@ -88,7 +101,7 @@ export async function runAgent(params: {
       : await timed("supabase.getBusinessSettings(agent)", () =>
           getBusinessSettings(systemContext.organizationId).catch(() => null)
         );
-  const systemPrompt = buildSystemPrompt(businessSettings, { isFirstReply });
+  const systemPrompt = buildSystemPrompt(businessSettings, { isFirstReply, activeCourses });
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },

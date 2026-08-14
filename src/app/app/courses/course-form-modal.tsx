@@ -4,21 +4,28 @@ import { useState } from "react";
 import type { Course } from "@/lib/services/courses";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { Label, TextInput, TextArea, FieldError } from "@/components/ui/field";
+import { Label, TextInput, TextArea, FieldError, Select } from "@/components/ui/field";
+import { COMMON_CURRENCIES } from "@/lib/currencies";
 
 export function CourseFormModal({
   course,
+  defaultCurrency,
   onClose,
   onSaved,
 }: {
   course: Course | null;
+  /** Org's business_settings.default_currency — pre-fills the currency
+   * field for a NEW course only. Editing an existing course keeps that
+   * course's own already-set currency untouched (never silently
+   * overwritten by the org default). */
+  defaultCurrency: string;
   onClose: () => void;
   onSaved: (course: Course) => void;
 }) {
   const [name, setName] = useState(course?.name ?? "");
   const [description, setDescription] = useState(course?.description ?? "");
   const [price, setPrice] = useState(course?.price != null ? String(course.price) : "");
-  const [currency, setCurrency] = useState(course?.currency ?? "USD");
+  const [currency, setCurrency] = useState(course?.currency ?? defaultCurrency);
   const [duration, setDuration] = useState(course?.duration ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -42,7 +49,7 @@ export function CourseFormModal({
         name: name.trim(),
         description: description.trim(),
         price: price.trim() ? Number(price) : null,
-        currency: currency.trim().toUpperCase() || "USD",
+        currency: currency.trim().toUpperCase() || defaultCurrency,
         duration: duration.trim() ? duration.trim() : null,
       };
 
@@ -101,13 +108,23 @@ export function CourseFormModal({
           </div>
           <div>
             <Label htmlFor="course-currency">Currency</Label>
-            <TextInput
-              id="course-currency"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              placeholder="USD"
-              maxLength={3}
-            />
+            <Select id="course-currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+              {/* If this course already has a currency outside the common
+                  shortlist (e.g. set before this dropdown existed, via the
+                  old free-text field), show it as an extra option rather
+                  than silently snapping the select to the first listed
+                  currency on open — that would rewrite the course's
+                  currency to something the owner never chose the moment
+                  they opened "Edit", not just if they touch the field. */}
+              {!COMMON_CURRENCIES.some((c) => c.code === currency) && (
+                <option value={currency}>{currency}</option>
+              )}
+              {COMMON_CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
           </div>
         </div>
 

@@ -13,6 +13,7 @@ import {
 } from "@/lib/services/conversations";
 import { appendMessage, listRecentMessages, hasReceivedPriorReply } from "@/lib/services/messages";
 import { getBusinessSettings } from "@/lib/services/business-settings";
+import { searchCourses } from "@/lib/services/courses";
 import { normalizeTelegramUpdate } from "@/lib/telegram/normalize";
 import { sendTelegramMessage } from "@/lib/telegram/client";
 import { stripMarkdownForTelegram } from "@/lib/telegram/format";
@@ -238,13 +239,24 @@ async function processInboundTelegramMessage(
   }
 
   // 7. Business settings (also carries the AI kill switch), recent history,
-  // and the first-reply signal are mutually independent reads — fetched
-  // concurrently rather than sequentially. getBusinessSettings can gate
-  // whether we proceed at all (ai_enabled), but that gate doesn't depend on
-  // the other two, so fetching all three together and checking the gate
-  // after is strictly faster in the common case (AI enabled) at the cost of
-  // two extra queries in the rare case (AI disabled for this org).
-  const [settings, recentMessages, hasPriorReply] = await Promise.all([
+  // the first-reply signal, and the active-course snapshot are mutually
+  // independent reads — fetched concurrently rather than sequentially.
+  // getBusinessSettings can gate whether we proceed at all (ai_enabled),
+  // but that gate doesn't depend on the others, so fetching all four
+  // together and checking the gate after is strictly faster in the common
+  // case (AI enabled) at the cost of extra queries in the rare case (AI
+  // disabled for this org).
+  //
+  // activeCourses is fetched unconditionally here (even though it's only
+  // USED when isFirstReply turns out true below) because isFirstReply
+  // itself isn't known until hasReceivedPriorReply resolves — but since
+  // this is one more concurrent query in an already-parallel Promise.all,
+  // it costs no additional wall-clock time for the majority (returning-
+  // customer) case, only a small amount of extra Supabase load. This is
+  // what lets a first reply that needs no OTHER tool answer in a single
+  // OpenRouter round instead of a mandatory "call search_courses, then
+  // answer" two-round trip — see system-prompt.ts and agent.ts.
+  const [settings, recentMessages, hasPriorReply, activeCourses] = await Promise.all([
     timed("supabase.getBusinessSettings(webhook)", () => getBusinessSettings(organizationId)),
     timed("supabase.listRecentMessages", () => listRecentMessages(organizationId, conversation.id, 21)),
     // Whether this customer has EVER received an ai/staff message, across
@@ -254,6 +266,7 @@ async function processInboundTelegramMessage(
     // first-time introduction in the system prompt — see
     // src/lib/ai/system-prompt.ts.
     timed("supabase.hasReceivedPriorReply", () => hasReceivedPriorReply(organizationId, customer.id)),
+    timed("supabase.searchCourses(webhook)", () => searchCourses(organizationId)),
   ]);
 
   if (settings && !settings.aiEnabled) {
@@ -265,9 +278,10 @@ async function processInboundTelegramMessage(
   const history = recentMessages.filter((m) => m.id !== stored.message.id).reverse();
   const isFirstReply = !hasPriorReply;
 
-  // 8. Run the AI agent with controlled tools. businessSettings is passed
-  // through from the fetch above so the agent doesn't fetch the same row
-  // again internally.
+  // 8. Run the AI agent with controlled tools. businessSettings/
+  // activeCourses are passed through from the fetches above so the agent
+  // doesn't re-fetch the same data (or, for courses, so a first reply that
+  // needs no other tool can answer in one OpenRouter round — see above).
   const agentResponse = await timed("agent.runAgent", () =>
     runAgent({
       systemContext: {
@@ -279,6 +293,7 @@ async function processInboundTelegramMessage(
       incomingText: inbound.text,
       isFirstReply,
       businessSettings: settings,
+      activeCourses: isFirstReply ? activeCourses : undefined,
     })
   );
 

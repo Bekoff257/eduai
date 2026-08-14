@@ -22,6 +22,12 @@ export interface BusinessSettings {
   aiEnabled: boolean;
   workingHours: WorkingHours;
   policies: string;
+  /** Org-wide default currency (ISO 4217 code, e.g. "UZS", "USD"), set from
+   * the dashboard. Pre-fills new courses in the dashboard course form only
+   * — the AI must never substitute this for a specific course's own
+   * courses.currency when quoting a price; that column is always the
+   * source of truth for what currency a given course's price is in. */
+  defaultCurrency: string;
 }
 
 function mapRow(row: {
@@ -34,6 +40,7 @@ function mapRow(row: {
   ai_enabled: boolean;
   working_hours: unknown;
   policies: unknown;
+  default_currency: string;
 }): BusinessSettings {
   return {
     organizationId: row.organization_id,
@@ -45,6 +52,7 @@ function mapRow(row: {
     aiEnabled: row.ai_enabled,
     workingHours: isWorkingHours(row.working_hours) ? row.working_hours : {},
     policies: typeof row.policies === "string" ? row.policies : "",
+    defaultCurrency: row.default_currency,
   };
 }
 
@@ -59,7 +67,7 @@ function isWorkingHours(value: unknown): value is WorkingHours {
 }
 
 const SELECT_COLUMNS =
-  "organization_id, business_name, description, timezone, languages, ai_tone, ai_enabled, working_hours, policies";
+  "organization_id, business_name, description, timezone, languages, ai_tone, ai_enabled, working_hours, policies, default_currency";
 
 export async function getBusinessSettings(
   organizationId: string
@@ -84,6 +92,7 @@ export interface UpdateBusinessSettingsInput {
   aiEnabled?: boolean;
   workingHours?: WorkingHours;
   policies?: string;
+  defaultCurrency?: string;
 }
 
 /** business_settings has exactly one row per organization, created
@@ -103,6 +112,7 @@ export async function updateBusinessSettings(
   if (input.aiEnabled !== undefined) patch.ai_enabled = input.aiEnabled;
   if (input.workingHours !== undefined) patch.working_hours = input.workingHours;
   if (input.policies !== undefined) patch.policies = input.policies;
+  if (input.defaultCurrency !== undefined) patch.default_currency = input.defaultCurrency;
 
   const { data, error } = await supabase
     .from("business_settings")

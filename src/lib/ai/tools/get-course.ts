@@ -8,7 +8,7 @@ const inputSchema = z.object({
 
 export const getCourseTool = defineTool({
   name: "get_course",
-  description: "Get full details (price, description, duration) for a single course by id.",
+  description: "Get full details (price, currency, description, duration) for a single course by id. Always state the returned price together with its currency, exactly as returned — never a different or omitted currency.",
   schema: inputSchema,
   handler: async (input, context) => {
     try {

@@ -21,6 +21,7 @@ const updateSchema = z.object({
   aiEnabled: z.boolean().optional(),
   workingHours: z.record(z.enum(["0", "1", "2", "3", "4", "5", "6"]), dayHoursSchema).optional(),
   policies: z.string().trim().max(4000).optional(),
+  defaultCurrency: z.string().trim().length(3).optional(),
 });
 
 export async function GET() {
