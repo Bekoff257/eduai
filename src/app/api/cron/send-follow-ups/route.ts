@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listDueFollowUps, markFollowUpSent, markFollowUpFailed } from "@/lib/services/follow-ups";
 import { sendTelegramMessage } from "@/lib/telegram/client";
+import { stripMarkdownForTelegram } from "@/lib/telegram/format";
 
 const DEFAULT_MESSAGE =
   "Hi! Just following up — let us know if you have any questions or would like to book a trial lesson.";
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
     const result = await sendTelegramMessage({
       botToken: followUp.botToken,
       chatId: followUp.telegramChatId,
-      text: followUp.message?.trim() || DEFAULT_MESSAGE,
+      text: stripMarkdownForTelegram(followUp.message?.trim() || DEFAULT_MESSAGE),
       businessConnectionId: followUp.businessConnectionId ?? undefined,
     });
 

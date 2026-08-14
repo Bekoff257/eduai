@@ -10,8 +10,10 @@ import { allTools, toolsByName } from "@/lib/ai/tools";
 import { buildSystemPrompt } from "@/lib/ai/system-prompt";
 import { getBusinessSettings } from "@/lib/services/business-settings";
 import { logAiAction } from "@/lib/services/ai-actions";
+import { timed } from "@/lib/timing";
 import type { AgentAction, AgentResponse, ToolContext } from "@/lib/ai/types";
 import type { Message } from "@/lib/services/messages";
+import type { BusinessSettings } from "@/lib/services/business-settings";
 
 const MAX_TOOL_ROUNDS = 5;
 
@@ -62,6 +64,13 @@ export async function runAgent(params: {
    * would otherwise incorrectly look like a new customer. Defaults to
    * false (existing behavior) if the caller doesn't know/pass it. */
   isFirstReply?: boolean;
+  /** Pre-fetched business settings, if the caller already has them (the
+   * webhook route fetches them anyway to check business_settings.ai_enabled
+   * before ever calling runAgent — passing that same result through here
+   * avoids fetching the identical row a second time). If omitted, runAgent
+   * fetches it itself, same as before — this parameter is purely an
+   * optional optimization, never a behavior change. */
+  businessSettings?: BusinessSettings | null;
 }): Promise<AgentResponse> {
   const { systemContext, history, incomingText, isFirstReply = false } = params;
 
@@ -73,7 +82,12 @@ export async function runAgent(params: {
     return { text: FALLBACK_TEXT, actions: [], leadUpdated: false, appointmentCreated: false, needsHumanAttention: true };
   }
 
-  const businessSettings = await getBusinessSettings(systemContext.organizationId).catch(() => null);
+  const businessSettings =
+    params.businessSettings !== undefined
+      ? params.businessSettings
+      : await timed("supabase.getBusinessSettings(agent)", () =>
+          getBusinessSettings(systemContext.organizationId).catch(() => null)
+        );
   const systemPrompt = buildSystemPrompt(businessSettings, { isFirstReply });
 
   const messages: ChatCompletionMessageParam[] = [
@@ -90,11 +104,13 @@ export async function runAgent(params: {
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     let completion;
     try {
-      completion = await client.chat.completions.create({
-        model: AI_MODEL,
-        messages,
-        tools,
-      });
+      completion = await timed(`openrouter.request(round=${round})`, () =>
+        client.chat.completions.create({
+          model: AI_MODEL,
+          messages,
+          tools,
+        })
+      );
     } catch (err) {
       console.error("runAgent: OpenRouter request failed:", err);
       return {
@@ -167,7 +183,10 @@ export async function runAgent(params: {
           content: JSON.stringify({ ok: false, error: errorMessage }),
         });
         actions.push({ tool: tool.name, status: "failure", summary: errorMessage });
-        await logAiAction(systemContext.organizationId, {
+        // Not awaited — see the comment on the success-path logAiAction
+        // call below for why this audit write is safe to detach from the
+        // customer-facing response path.
+        void logAiAction(systemContext.organizationId, {
           conversationId: systemContext.conversationId,
           toolName: tool.name,
           input: parsedInput,
@@ -189,7 +208,7 @@ export async function runAgent(params: {
       // exactly the shape tool.handler expects, and AnyToolDefinition's
       // erased `never` parameter type exists only to prevent calling
       // handler with unvalidated input elsewhere in the codebase.
-      const result = await tool.handler(validation.data as never, systemContext);
+      const result = await timed(`tool.${tool.name}`, () => tool.handler(validation.data as never, systemContext));
 
       actions.push({
         tool: tool.name,
@@ -197,14 +216,23 @@ export async function runAgent(params: {
         summary: result.ok ? "completed" : (result.error ?? "failed"),
       });
 
-      await logAiAction(systemContext.organizationId, {
-        conversationId: systemContext.conversationId,
-        toolName: tool.name,
-        input: validation.data,
-        output: result.ok ? result.data : null,
-        status: result.ok ? "success" : "failure",
-        errorMessage: result.ok ? undefined : result.error,
-      });
+      // Not awaited — logAiAction writes to a separate audit table
+      // (ai_actions), not to the `messages` transcript this loop sends
+      // back to OpenRouter, so the customer-facing response does not
+      // depend on this write completing. logAiAction's own failure
+      // handling already logs-and-swallows rather than throwing (see
+      // src/lib/services/ai-actions.ts), so a rejected promise here is
+      // still safe to leave unhandled beyond the .catch below.
+      void timed(`supabase.logAiAction(${tool.name})`, () =>
+        logAiAction(systemContext.organizationId, {
+          conversationId: systemContext.conversationId,
+          toolName: tool.name,
+          input: validation.data,
+          output: result.ok ? result.data : null,
+          status: result.ok ? "success" : "failure",
+          errorMessage: result.ok ? undefined : result.error,
+        })
+      ).catch((err) => console.error("runAgent: logAiAction failed:", err));
 
       if (tool.name === "create_lead" || tool.name === "update_lead") {
         leadUpdated = leadUpdated || result.ok;

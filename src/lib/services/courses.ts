@@ -8,6 +8,10 @@ export interface Course {
   description: string;
   price: number | null;
   currency: string;
+  /** Free-text learning duration label (e.g. "3 months", "8 weeks"), set
+   * from the dashboard. Null means unspecified, not "no duration" — the AI
+   * must not infer or invent a duration when this is null. */
+  duration: string | null;
   isActive: boolean;
 }
 
@@ -18,6 +22,7 @@ function mapRow(row: {
   description: string;
   price: string | number | null;
   currency: string;
+  duration: string | null;
   is_active: boolean;
 }): Course {
   return {
@@ -27,11 +32,12 @@ function mapRow(row: {
     description: row.description,
     price: row.price === null ? null : Number(row.price),
     currency: row.currency,
+    duration: row.duration,
     isActive: row.is_active,
   };
 }
 
-const SELECT_COLUMNS = "id, organization_id, name, description, price, currency, is_active";
+const SELECT_COLUMNS = "id, organization_id, name, description, price, currency, duration, is_active";
 
 export async function searchCourses(
   organizationId: string,
@@ -90,6 +96,7 @@ export interface CreateCourseInput {
   description?: string;
   price?: number | null;
   currency?: string;
+  duration?: string | null;
 }
 
 export async function createCourse(
@@ -105,6 +112,7 @@ export async function createCourse(
       description: input.description ?? "",
       price: input.price ?? null,
       currency: input.currency ?? "USD",
+      duration: input.duration ?? null,
     })
     .select(SELECT_COLUMNS)
     .single();
@@ -118,6 +126,7 @@ export interface UpdateCourseInput {
   description?: string;
   price?: number | null;
   currency?: string;
+  duration?: string | null;
   isActive?: boolean;
 }
 
@@ -132,6 +141,7 @@ export async function updateCourse(
   if (input.description !== undefined) patch.description = input.description;
   if (input.price !== undefined) patch.price = input.price;
   if (input.currency !== undefined) patch.currency = input.currency;
+  if (input.duration !== undefined) patch.duration = input.duration;
   if (input.isActive !== undefined) patch.is_active = input.isActive;
 
   const { data, error } = await supabase

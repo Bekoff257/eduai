@@ -8,7 +8,7 @@ const inputSchema = z.object({
 
 export const getCourseTool = defineTool({
   name: "get_course",
-  description: "Get full details (price, description) for a single course by id.",
+  description: "Get full details (price, description, duration) for a single course by id.",
   schema: inputSchema,
   handler: async (input, context) => {
     try {

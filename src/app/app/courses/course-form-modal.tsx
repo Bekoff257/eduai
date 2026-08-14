@@ -19,6 +19,7 @@ export function CourseFormModal({
   const [description, setDescription] = useState(course?.description ?? "");
   const [price, setPrice] = useState(course?.price != null ? String(course.price) : "");
   const [currency, setCurrency] = useState(course?.currency ?? "USD");
+  const [duration, setDuration] = useState(course?.duration ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -42,6 +43,7 @@ export function CourseFormModal({
         description: description.trim(),
         price: price.trim() ? Number(price) : null,
         currency: currency.trim().toUpperCase() || "USD",
+        duration: duration.trim() ? duration.trim() : null,
       };
 
       const res = await fetch(course ? `/api/courses/${course.id}` : "/api/courses", {
@@ -107,6 +109,17 @@ export function CourseFormModal({
               maxLength={3}
             />
           </div>
+        </div>
+
+        <div>
+          <Label htmlFor="course-duration">Duration</Label>
+          <TextInput
+            id="course-duration"
+            value={duration}
+            onChange={(e) => setDuration(e.target.value)}
+            placeholder="3 months"
+            maxLength={100}
+          />
         </div>
 
         <FieldError>{error}</FieldError>

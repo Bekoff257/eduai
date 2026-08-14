@@ -8,6 +8,7 @@ const createCourseSchema = z.object({
   description: z.string().trim().max(2000).optional(),
   price: z.number().nonnegative().nullable().optional(),
   currency: z.string().trim().length(3).optional(),
+  duration: z.string().trim().max(100).nullable().optional(),
 });
 
 export async function GET() {

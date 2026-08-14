@@ -117,9 +117,12 @@ export function CoursesClient({
                         <p className="mt-0.5 truncate text-xs text-muted">{course.description}</p>
                       )}
                     </div>
-                    <span className="shrink-0 text-sm font-medium text-foreground">
-                      {course.price !== null ? formatCurrency(course.price, course.currency) : "—"}
-                    </span>
+                    <div className="flex shrink-0 flex-col items-end gap-0.5">
+                      <span className="text-sm font-medium text-foreground">
+                        {course.price !== null ? formatCurrency(course.price, course.currency) : "—"}
+                      </span>
+                      {course.duration && <span className="text-xs text-muted">{course.duration}</span>}
+                    </div>
                   </button>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <Button variant="ghost" size="sm" onClick={() => setFormCourse(course)}>

@@ -15,8 +15,10 @@ import { appendMessage, listRecentMessages, hasReceivedPriorReply } from "@/lib/
 import { getBusinessSettings } from "@/lib/services/business-settings";
 import { normalizeTelegramUpdate } from "@/lib/telegram/normalize";
 import { sendTelegramMessage } from "@/lib/telegram/client";
+import { stripMarkdownForTelegram } from "@/lib/telegram/format";
 import { withConversationLock } from "@/lib/telegram/conversation-lock";
 import { runAgent } from "@/lib/ai/agent";
+import { startTimer, timed } from "@/lib/timing";
 import type { TelegramUpdate } from "@/lib/telegram/webhook-types";
 import type { InboundMessage } from "@/lib/ai/types";
 
@@ -48,6 +50,18 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  const requestDone = startTimer("webhook.total");
+  try {
+    return await handleWebhookRequest(request, params);
+  } finally {
+    requestDone();
+  }
+}
+
+async function handleWebhookRequest(
+  request: NextRequest,
+  params: Promise<{ token: string }>
+) {
   const { token } = await params;
   if (!token) {
     return NextResponse.json({ ok: false }, { status: 404 });
@@ -55,7 +69,9 @@ export async function POST(
 
   // 1. Resolve the organization from the URL token ALONE. Nothing in the
   // request body is trusted for tenant identification.
-  const integration = await getTelegramIntegrationByWebhookToken(token);
+  const integration = await timed("supabase.getTelegramIntegrationByWebhookToken", () =>
+    getTelegramIntegrationByWebhookToken(token)
+  );
   if (!integration) {
     return NextResponse.json({ ok: false }, { status: 404 });
   }
@@ -171,85 +187,123 @@ async function processInboundTelegramMessage(
   const businessConnectionId = inbound.metadata.businessConnectionId as string | undefined;
 
   // 3. Find/create the customer for this Telegram chat.
-  const customer = await upsertCustomerFromTelegram(organizationId, {
-    telegramChatId,
-    telegramUsername: inbound.metadata.telegramUsername as string | undefined,
-    fullName: [inbound.metadata.telegramFirstName, inbound.metadata.telegramLastName]
-      .filter(Boolean)
-      .join(" ")
-      .trim() || undefined,
-  });
+  const customer = await timed("supabase.upsertCustomerFromTelegram", () =>
+    upsertCustomerFromTelegram(organizationId, {
+      telegramChatId,
+      telegramUsername: inbound.metadata.telegramUsername as string | undefined,
+      fullName: [inbound.metadata.telegramFirstName, inbound.metadata.telegramLastName]
+        .filter(Boolean)
+        .join(" ")
+        .trim() || undefined,
+    })
+  );
 
   // 4. Find/create the open conversation for this customer.
-  const conversation = await findOrCreateOpenConversation(organizationId, customer.id);
+  const conversation = await timed("supabase.findOrCreateOpenConversation", () =>
+    findOrCreateOpenConversation(organizationId, customer.id)
+  );
 
   // 5. Store the incoming message. Idempotent on (organization_id,
   // telegram_update_id) — if Telegram retries this exact update, this
   // returns duplicate_update and we stop here without re-invoking the AI
   // or sending a second reply.
-  const stored = await appendMessage(organizationId, {
-    conversationId: conversation.id,
-    sender: "customer",
-    content: inbound.text,
-    telegramMessageId: Number(inbound.messageId),
-    telegramUpdateId: updateId,
-  });
+  const stored = await timed("supabase.appendMessage(customer)", () =>
+    appendMessage(organizationId, {
+      conversationId: conversation.id,
+      sender: "customer",
+      content: inbound.text,
+      telegramMessageId: Number(inbound.messageId),
+      telegramUpdateId: updateId,
+    })
+  );
 
   if (!stored.ok) {
     return;
   }
 
-  await touchConversationLastMessageAt(organizationId, conversation.id);
+  // Not awaited — this is a last-updated timestamp used only for dashboard
+  // sort order, not read again anywhere later in this request, so the
+  // reply does not need to wait on it. Errors are logged, never thrown,
+  // matching touchConversationLastMessageAt's own fire-and-forget-safe
+  // write (a missed timestamp bump is not worth delaying a customer for).
+  void timed("supabase.touchConversationLastMessageAt(1)", () =>
+    touchConversationLastMessageAt(organizationId, conversation.id)
+  ).catch((err) => console.error("touchConversationLastMessageAt(1) failed:", err));
 
   // 6. HUMAN mode: store the message (done above) but never invoke the
   // agent — checked here, before any AI call, so AI and a human can never
-  // both respond to the same message. Independently, the organization-wide
-  // AI kill switch (business_settings.ai_enabled, set from the dashboard's
-  // AI Settings page) is checked the same way — either one alone is enough
-  // to suppress the agent.
+  // both respond to the same message.
   if (conversation.mode === "human") {
     return;
   }
 
-  const settings = await getBusinessSettings(organizationId);
+  // 7. Business settings (also carries the AI kill switch), recent history,
+  // and the first-reply signal are mutually independent reads — fetched
+  // concurrently rather than sequentially. getBusinessSettings can gate
+  // whether we proceed at all (ai_enabled), but that gate doesn't depend on
+  // the other two, so fetching all three together and checking the gate
+  // after is strictly faster in the common case (AI enabled) at the cost of
+  // two extra queries in the rare case (AI disabled for this org).
+  const [settings, recentMessages, hasPriorReply] = await Promise.all([
+    timed("supabase.getBusinessSettings(webhook)", () => getBusinessSettings(organizationId)),
+    timed("supabase.listRecentMessages", () => listRecentMessages(organizationId, conversation.id, 21)),
+    // Whether this customer has EVER received an ai/staff message, across
+    // all their conversations, not just this conversation's history (which
+    // can be misleadingly empty if a prior conversation was closed and this
+    // is a new one for a returning customer). Drives the proactive
+    // first-time introduction in the system prompt — see
+    // src/lib/ai/system-prompt.ts.
+    timed("supabase.hasReceivedPriorReply", () => hasReceivedPriorReply(organizationId, customer.id)),
+  ]);
+
   if (settings && !settings.aiEnabled) {
     return;
   }
 
-  // 7. Load recent history (excluding the message we just stored — it's
-  // passed separately as the current turn) for the agent's context.
-  const recentMessages = await listRecentMessages(organizationId, conversation.id, 21);
+  // Excluding the message we just stored — it's passed separately as the
+  // current turn.
   const history = recentMessages.filter((m) => m.id !== stored.message.id).reverse();
+  const isFirstReply = !hasPriorReply;
 
-  // Checked BEFORE the agent runs (i.e. before its own reply could count
-  // as "a prior reply") — whether this customer has EVER received an
-  // ai/staff message, across all their conversations, not just this
-  // conversation's history (which can be misleadingly empty if a prior
-  // conversation was closed and this is a new one for a returning
-  // customer). Drives the proactive first-time introduction in the
-  // system prompt — see src/lib/ai/system-prompt.ts.
-  const isFirstReply = !(await hasReceivedPriorReply(organizationId, customer.id));
+  // 8. Run the AI agent with controlled tools. businessSettings is passed
+  // through from the fetch above so the agent doesn't fetch the same row
+  // again internally.
+  const agentResponse = await timed("agent.runAgent", () =>
+    runAgent({
+      systemContext: {
+        organizationId,
+        conversationId: conversation.id,
+        customerId: customer.id,
+      },
+      history,
+      incomingText: inbound.text,
+      isFirstReply,
+      businessSettings: settings,
+    })
+  );
 
-  // 8. Run the AI agent with controlled tools.
-  const agentResponse = await runAgent({
-    systemContext: {
-      organizationId,
+  // 9. Store the AI's response. Markdown-stripped here (once, before both
+  // storage and the Telegram send below) since sendTelegramMessage sends
+  // with no parse_mode — the model sometimes emits **bold**/`code`-style
+  // syntax that would otherwise show up as literal asterisks/backticks to
+  // the customer, and staff reading the same stored text in the dashboard
+  // Inbox shouldn't see raw Markdown either.
+  const replyText = stripMarkdownForTelegram(agentResponse.text);
+
+  await timed("supabase.appendMessage(ai)", () =>
+    appendMessage(organizationId, {
       conversationId: conversation.id,
-      customerId: customer.id,
-    },
-    history,
-    incomingText: inbound.text,
-    isFirstReply,
-  });
+      sender: "ai",
+      content: replyText,
+    })
+  );
 
-  // 9. Store the AI's response.
-  await appendMessage(organizationId, {
-    conversationId: conversation.id,
-    sender: "ai",
-    content: agentResponse.text,
-  });
-
-  await touchConversationLastMessageAt(organizationId, conversation.id);
+  // Not awaited — same reasoning as touchConversationLastMessageAt(1)
+  // above; the customer's reply has already been sent by the time this
+  // settles, so there's nothing left downstream to block on.
+  void timed("supabase.touchConversationLastMessageAt(2)", () =>
+    touchConversationLastMessageAt(organizationId, conversation.id)
+  ).catch((err) => console.error("touchConversationLastMessageAt(2) failed:", err));
 
   // 10. Send the response back through Telegram. For a business
   // connection, business_connection_id makes this appear, to the
@@ -257,12 +311,14 @@ async function processInboundTelegramMessage(
   // sendTelegramMessage already retries transient failures/FLOOD_WAIT
   // internally (src/lib/telegram/client.ts) — a failure reaching here is
   // one that retrying didn't fix, not a fluke.
-  const sendResult = await sendTelegramMessage({
-    botToken,
-    chatId: telegramChatId,
-    text: agentResponse.text,
-    businessConnectionId,
-  });
+  const sendResult = await timed("telegram.sendMessage", () =>
+    sendTelegramMessage({
+      botToken,
+      chatId: telegramChatId,
+      text: replyText,
+      businessConnectionId,
+    })
+  );
 
   if (!sendResult.ok) {
     console.error("Failed to send Telegram response:", sendResult.description);
