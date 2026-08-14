@@ -54,8 +54,16 @@ export async function runAgent(params: {
   systemContext: ToolContext;
   history: Message[];
   incomingText: string;
+  /** True the very first time this customer ever receives an AI/staff
+   * reply (see src/lib/services/messages.ts#hasReceivedPriorReply) —
+   * lets the agent deliver a proactive business introduction instead of
+   * a generic "how can I help" on a first "Hi". Not derived from
+   * `history` being empty, since a closed-then-reopened conversation
+   * would otherwise incorrectly look like a new customer. Defaults to
+   * false (existing behavior) if the caller doesn't know/pass it. */
+  isFirstReply?: boolean;
 }): Promise<AgentResponse> {
-  const { systemContext, history, incomingText } = params;
+  const { systemContext, history, incomingText, isFirstReply = false } = params;
 
   let client: OpenAI;
   try {
@@ -66,7 +74,7 @@ export async function runAgent(params: {
   }
 
   const businessSettings = await getBusinessSettings(systemContext.organizationId).catch(() => null);
-  const systemPrompt = buildSystemPrompt(businessSettings);
+  const systemPrompt = buildSystemPrompt(businessSettings, { isFirstReply });
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },

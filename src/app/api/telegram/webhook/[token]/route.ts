@@ -11,7 +11,7 @@ import {
   updateConversationMode,
   updateConversationStatus,
 } from "@/lib/services/conversations";
-import { appendMessage, listRecentMessages } from "@/lib/services/messages";
+import { appendMessage, listRecentMessages, hasReceivedPriorReply } from "@/lib/services/messages";
 import { getBusinessSettings } from "@/lib/services/business-settings";
 import { normalizeTelegramUpdate } from "@/lib/telegram/normalize";
 import { sendTelegramMessage } from "@/lib/telegram/client";
@@ -221,6 +221,15 @@ async function processInboundTelegramMessage(
   const recentMessages = await listRecentMessages(organizationId, conversation.id, 21);
   const history = recentMessages.filter((m) => m.id !== stored.message.id).reverse();
 
+  // Checked BEFORE the agent runs (i.e. before its own reply could count
+  // as "a prior reply") — whether this customer has EVER received an
+  // ai/staff message, across all their conversations, not just this
+  // conversation's history (which can be misleadingly empty if a prior
+  // conversation was closed and this is a new one for a returning
+  // customer). Drives the proactive first-time introduction in the
+  // system prompt — see src/lib/ai/system-prompt.ts.
+  const isFirstReply = !(await hasReceivedPriorReply(organizationId, customer.id));
+
   // 8. Run the AI agent with controlled tools.
   const agentResponse = await runAgent({
     systemContext: {
@@ -230,6 +239,7 @@ async function processInboundTelegramMessage(
     },
     history,
     incomingText: inbound.text,
+    isFirstReply,
   });
 
   // 9. Store the AI's response.

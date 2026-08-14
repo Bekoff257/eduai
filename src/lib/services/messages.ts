@@ -80,6 +80,36 @@ export async function appendMessage(
 }
 
 /**
+ * Whether this customer has ever received an ai/staff reply, across ALL
+ * of their conversations — not just the current one. Used to decide
+ * whether the agent should deliver its proactive first-time introduction
+ * (see system-prompt.ts) versus behave as it does for an ongoing/
+ * returning conversation. Deliberately NOT based on "is the current
+ * conversation's history empty": a conversation can be closed (dashboard
+ * action) and a genuinely returning customer's next message opens a new
+ * one with empty history, which must not re-trigger the intro.
+ *
+ * messages has no customer_id column directly (only conversation_id) —
+ * joins through conversations, which does have customer_id, via
+ * PostgREST's embedded-resource filter syntax.
+ */
+export async function hasReceivedPriorReply(
+  organizationId: string,
+  customerId: string
+): Promise<boolean> {
+  const supabase = getSupabaseServiceClient();
+  const { count, error } = await supabase
+    .from("messages")
+    .select("id, conversations!inner(customer_id)", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .eq("conversations.customer_id", customerId)
+    .in("sender", ["ai", "staff"]);
+
+  if (error) throw new Error(`hasReceivedPriorReply failed: ${error.message}`);
+  return (count ?? 0) > 0;
+}
+
+/**
  * Most-recent-first is how Postgres returns it fastest (index on
  * (conversation_id, created_at)); callers that need chronological order
  * for building AI conversation history should reverse the result.
