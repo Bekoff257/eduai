@@ -14,15 +14,27 @@ const dayHoursSchema = z.object({
     .nullable(),
 });
 
-const updateSchema = z.object({
-  businessName: z.string().trim().max(200).optional(),
-  description: z.string().trim().max(2000).optional(),
-  aiTone: z.string().trim().max(200).optional(),
-  aiEnabled: z.boolean().optional(),
-  workingHours: z.record(z.enum(["0", "1", "2", "3", "4", "5", "6"]), dayHoursSchema).optional(),
-  policies: z.string().trim().max(4000).optional(),
-  defaultCurrency: z.string().trim().length(3).optional(),
-});
+const updateSchema = z
+  .object({
+    businessName: z.string().trim().max(200).optional(),
+    description: z.string().trim().max(2000).optional(),
+    aiTone: z.string().trim().max(200).optional(),
+    aiEnabled: z.boolean().optional(),
+    workingHours: z.record(z.enum(["0", "1", "2", "3", "4", "5", "6"]), dayHoursSchema).optional(),
+    policies: z.string().trim().max(4000).optional(),
+    defaultCurrency: z.string().trim().length(3).optional(),
+    languages: z.array(z.string().trim().min(2).max(10)).min(1).optional(),
+    defaultLanguage: z.string().trim().min(2).max(10).optional(),
+  })
+  // defaultLanguage must be one of the org's configured languages — checked
+  // here (not just relying on the dashboard UI to only offer valid
+  // choices) since this is the actual authorization/validation boundary;
+  // only enforced when BOTH are present in the same request, since a
+  // request that only changes one of them can't validate the pair.
+  .refine(
+    (data) => !data.languages || !data.defaultLanguage || data.languages.includes(data.defaultLanguage),
+    { message: "defaultLanguage must be one of the provided languages", path: ["defaultLanguage"] }
+  );
 
 export async function GET() {
   const auth = await requireOrgApiAuth();

@@ -28,6 +28,14 @@ export interface BusinessSettings {
    * courses.currency when quoting a price; that column is always the
    * source of truth for what currency a given course's price is in. */
   defaultCurrency: string;
+  /** Fallback language (free-text code, e.g. "uz") used when a customer has
+   * no known language and this message's detection is ambiguous — see
+   * resolveCustomerLanguage in services/customers.ts. Not constrained to
+   * `languages` at the type level (kept as plain strings so a business can
+   * support more languages later without a schema change), but the
+   * dashboard only lets an owner pick a default from their own configured
+   * `languages` list. */
+  defaultLanguage: string;
 }
 
 function mapRow(row: {
@@ -41,6 +49,7 @@ function mapRow(row: {
   working_hours: unknown;
   policies: unknown;
   default_currency: string;
+  default_language: string;
 }): BusinessSettings {
   return {
     organizationId: row.organization_id,
@@ -53,6 +62,7 @@ function mapRow(row: {
     workingHours: isWorkingHours(row.working_hours) ? row.working_hours : {},
     policies: typeof row.policies === "string" ? row.policies : "",
     defaultCurrency: row.default_currency,
+    defaultLanguage: row.default_language,
   };
 }
 
@@ -67,7 +77,7 @@ function isWorkingHours(value: unknown): value is WorkingHours {
 }
 
 const SELECT_COLUMNS =
-  "organization_id, business_name, description, timezone, languages, ai_tone, ai_enabled, working_hours, policies, default_currency";
+  "organization_id, business_name, description, timezone, languages, ai_tone, ai_enabled, working_hours, policies, default_currency, default_language";
 
 export async function getBusinessSettings(
   organizationId: string
@@ -93,6 +103,7 @@ export interface UpdateBusinessSettingsInput {
   workingHours?: WorkingHours;
   policies?: string;
   defaultCurrency?: string;
+  defaultLanguage?: string;
 }
 
 /** business_settings has exactly one row per organization, created
@@ -113,6 +124,7 @@ export async function updateBusinessSettings(
   if (input.workingHours !== undefined) patch.working_hours = input.workingHours;
   if (input.policies !== undefined) patch.policies = input.policies;
   if (input.defaultCurrency !== undefined) patch.default_currency = input.defaultCurrency;
+  if (input.defaultLanguage !== undefined) patch.default_language = input.defaultLanguage;
 
   const { data, error } = await supabase
     .from("business_settings")

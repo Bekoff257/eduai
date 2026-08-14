@@ -8,6 +8,7 @@ import { Label, TextInput, TextArea, Select } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { formatDayOfWeek } from "@/lib/format";
 import { COMMON_CURRENCIES } from "@/lib/currencies";
+import { COMMON_LANGUAGES } from "@/lib/languages";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
@@ -25,8 +26,26 @@ export function AISettingsClient({
   const [aiEnabled, setAiEnabled] = useState(initialSettings?.aiEnabled ?? true);
   const [policies, setPolicies] = useState(initialSettings?.policies ?? "");
   const [defaultCurrency, setDefaultCurrency] = useState(initialSettings?.defaultCurrency ?? "USD");
+  const [languages, setLanguages] = useState<string[]>(initialSettings?.languages ?? ["en"]);
+  const [defaultLanguage, setDefaultLanguage] = useState(initialSettings?.defaultLanguage ?? "uz");
   const [workingHours, setWorkingHours] = useState<WorkingHours>(initialSettings?.workingHours ?? {});
   const [isSaving, setIsSaving] = useState(false);
+
+  function toggleLanguage(code: string, isChecked: boolean) {
+    setLanguages((prev) => {
+      if (isChecked) return prev.includes(code) ? prev : [...prev, code];
+      // At least one language must stay supported — the AI needs
+      // SOMETHING to fall back to, and defaultLanguage must always be a
+      // member of this list (enforced by the API's zod refine).
+      const next = prev.filter((l) => l !== code);
+      if (next.length === 0) return prev;
+      // Unchecking the current default falls back to whatever's left, so
+      // the save payload is never invalid without the owner having to
+      // notice and fix it themselves.
+      if (defaultLanguage === code) setDefaultLanguage(next[0]);
+      return next;
+    });
+  }
 
   function toggleDayOpen(day: (typeof DAYS)[number], isOpen: boolean) {
     setWorkingHours((prev) => ({
@@ -55,6 +74,8 @@ export function AISettingsClient({
           aiEnabled,
           policies: policies.trim(),
           defaultCurrency,
+          languages,
+          defaultLanguage,
           workingHours,
         }),
       });
@@ -165,6 +186,48 @@ export function AISettingsClient({
           <p className="mt-1.5 text-xs text-muted">
             Pre-fills the currency when you add a new course. Each course still has its own currency —
             change a specific course&apos;s currency on the Courses page if it differs from this default.
+          </p>
+        </div>
+
+        <div>
+          <Label>Supported languages</Label>
+          <div className="flex flex-wrap gap-4">
+            {COMMON_LANGUAGES.map((l) => (
+              <label key={l.code} className="flex items-center gap-1.5 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={languages.includes(l.code)}
+                  disabled={!canManage}
+                  onChange={(e) => toggleLanguage(l.code, e.target.checked)}
+                />
+                {l.label}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-muted">
+            Languages your AI receptionist can reply in. It will still answer in a customer&apos;s own
+            language if they explicitly ask for one that isn&apos;t checked here, but otherwise falls back
+            to your default language below.
+          </p>
+        </div>
+
+        <div>
+          <Label htmlFor="ai-default-language">Default language</Label>
+          <Select
+            id="ai-default-language"
+            value={defaultLanguage}
+            onChange={(e) => setDefaultLanguage(e.target.value)}
+            disabled={!canManage}
+          >
+            {COMMON_LANGUAGES.filter((l) => languages.includes(l.code)).map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1.5 text-xs text-muted">
+            Used when a customer&apos;s language can&apos;t be determined yet — e.g. their first message is
+            too short or ambiguous to detect.
           </p>
         </div>
       </Card>

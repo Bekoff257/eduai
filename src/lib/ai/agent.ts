@@ -15,6 +15,7 @@ import type { AgentAction, AgentResponse, ToolContext } from "@/lib/ai/types";
 import type { Message } from "@/lib/services/messages";
 import type { BusinessSettings } from "@/lib/services/business-settings";
 import type { Course } from "@/lib/services/courses";
+import type { LanguageContext } from "@/lib/ai/system-prompt";
 
 const MAX_TOOL_ROUNDS = 5;
 
@@ -84,8 +85,18 @@ export async function runAgent(params: {
    * data — that path is rarer and doesn't justify fetching courses on
    * every single message. */
   activeCourses?: Course[];
+  /** The customer's resolved language for this reply, plus enough context
+   * for the model to follow M5's language rules (never switch without an
+   * explicit request, never respond in a disabled language unless the
+   * customer explicitly asked for it, etc — see buildSystemPrompt). Always
+   * provided by the webhook route (resolveCustomerLanguage never returns
+   * nothing); optional here only so callers that genuinely have no
+   * language context (e.g. some test scripts) don't have to fabricate one
+   * — buildSystemPrompt falls back to the old un-language-aware behavior
+   * when this is omitted. */
+  languageContext?: LanguageContext;
 }): Promise<AgentResponse> {
-  const { systemContext, history, incomingText, isFirstReply = false, activeCourses } = params;
+  const { systemContext, history, incomingText, isFirstReply = false, activeCourses, languageContext } = params;
 
   let client: OpenAI;
   try {
@@ -101,7 +112,7 @@ export async function runAgent(params: {
       : await timed("supabase.getBusinessSettings(agent)", () =>
           getBusinessSettings(systemContext.organizationId).catch(() => null)
         );
-  const systemPrompt = buildSystemPrompt(businessSettings, { isFirstReply, activeCourses });
+  const systemPrompt = buildSystemPrompt(businessSettings, { isFirstReply, activeCourses, languageContext });
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },

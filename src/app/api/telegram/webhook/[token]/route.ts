@@ -4,7 +4,7 @@ import {
   getTelegramIntegrationByBusinessConnectionId,
   upsertBusinessConnection,
 } from "@/lib/services/telegram-integrations";
-import { upsertCustomerFromTelegram } from "@/lib/services/customers";
+import { upsertCustomerFromTelegram, updateCustomer, resolveCustomerLanguage } from "@/lib/services/customers";
 import {
   findOrCreateOpenConversation,
   touchConversationLastMessageAt,
@@ -278,6 +278,25 @@ async function processInboundTelegramMessage(
   const history = recentMessages.filter((m) => m.id !== stored.message.id).reverse();
   const isFirstReply = !hasPriorReply;
 
+  // 7b. Resolve the customer's language for THIS reply — pure, synchronous,
+  // no extra OpenRouter call (see src/lib/language-detect.ts and
+  // resolveCustomerLanguage in services/customers.ts for the full
+  // precedence rules: explicit request > stored explicit preference >
+  // confident detection > stored detected preference > org default).
+  const resolvedLanguage = resolveCustomerLanguage(customer, inbound.text, settings);
+  if (resolvedLanguage.changed) {
+    // Not awaited — same reasoning as touchConversationLastMessageAt below;
+    // the reply's own wording already reflects resolvedLanguage (passed to
+    // runAgent directly), so nothing downstream in THIS request depends on
+    // this write completing before the customer gets their answer. A
+    // missed persist here just means the same detection runs again next
+    // message, which is harmless.
+    void updateCustomer(organizationId, customer.id, {
+      language: resolvedLanguage.language,
+      languageSource: resolvedLanguage.source,
+    }).catch((err) => console.error("updateCustomer(language) failed:", err));
+  }
+
   // 8. Run the AI agent with controlled tools. businessSettings/
   // activeCourses are passed through from the fetches above so the agent
   // doesn't re-fetch the same data (or, for courses, so a first reply that
@@ -294,6 +313,12 @@ async function processInboundTelegramMessage(
       isFirstReply,
       businessSettings: settings,
       activeCourses: isFirstReply ? activeCourses : undefined,
+      languageContext: {
+        customerLanguage: resolvedLanguage.language,
+        languageSource: resolvedLanguage.source,
+        supportedLanguages: settings?.languages ?? ["en"],
+        defaultLanguage: settings?.defaultLanguage ?? "en",
+      },
     })
   );
 

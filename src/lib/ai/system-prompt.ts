@@ -1,21 +1,51 @@
 import type { BusinessSettings } from "@/lib/services/business-settings";
 import type { Course } from "@/lib/services/courses";
+import type { LanguageSource } from "@/lib/services/customers";
 import { checkBusinessHours } from "@/lib/business-hours";
+
+/** Structured language state for one reply — see resolveCustomerLanguage
+ * (services/customers.ts) for how customerLanguage/languageSource are
+ * decided, and src/lib/language-detect.ts for the detection heuristics
+ * behind it. Always built from real stored/detected data, never invented
+ * by the model — the model only ever CHOOSES to request a language change
+ * via update_customer, it never sets languageContext itself. */
+export interface LanguageContext {
+  customerLanguage: string;
+  languageSource: LanguageSource;
+  supportedLanguages: string[];
+  defaultLanguage: string;
+}
+
+/** Readable names for the languages this app is documented to support at
+ * minimum (uz/ru/en) — purely cosmetic, so the prompt reads as "Uzbek
+ * (uz)" instead of a bare code. Falls back to the raw code for anything
+ * else, since business_settings.languages is intentionally not restricted
+ * to only these three (a business can configure more later). */
+const LANGUAGE_NAMES: Record<string, string> = {
+  uz: "Uzbek",
+  ru: "Russian",
+  en: "English",
+};
+function describeLanguage(code: string): string {
+  const name = LANGUAGE_NAMES[code.toLowerCase()];
+  return name ? `${name} (${code})` : code;
+}
 
 /**
  * Structured business config only — never a single freeform prompt blob
  * that stores business facts as prose (per architecture principle). The
  * model is told to look up prices/schedules/availability via tools, not to
  * reason from anything embedded here. The exceptions — current open/closed
- * status, the policies block, and (on a first reply) a pre-fetched course
- * snapshot — are themselves structured inputs, not free-form claims: a
- * computed boolean, an owner-authored free-text field explicitly scoped as
- * informational, and the exact same Course rows search_courses would
- * return, respectively.
+ * status, the policies block, (on a first reply) a pre-fetched course
+ * snapshot, and the resolved language context — are themselves structured
+ * inputs, not free-form claims: a computed boolean, an owner-authored
+ * free-text field explicitly scoped as informational, the exact same
+ * Course rows search_courses would return, and a value computed by
+ * resolveCustomerLanguage from real stored/detected data, respectively.
  */
 export function buildSystemPrompt(
   settings: BusinessSettings | null,
-  options: { isFirstReply?: boolean; activeCourses?: Course[] } = {}
+  options: { isFirstReply?: boolean; activeCourses?: Course[]; languageContext?: LanguageContext } = {}
 ): string {
   const businessName = settings?.businessName || "this business";
   const description = settings?.description || "";
@@ -23,6 +53,7 @@ export function buildSystemPrompt(
   const policies = settings?.policies?.trim() || "";
   const isFirstReply = options.isFirstReply ?? false;
   const activeCourses = options.activeCourses;
+  const languageContext = options.languageContext;
 
   // Plain "<amount> <CURRENCY>" rather than Intl.NumberFormat's locale-
   // formatted currency (src/lib/format.ts#formatCurrency) — that helper
@@ -50,6 +81,31 @@ export function buildSystemPrompt(
 
   return [
     `You are a customer operations assistant for ${businessName}.`,
+    languageContext
+      ? [
+          "",
+          "LANGUAGE CONTEXT (structured, computed from real stored/detected data — not a guess you make yourself):",
+          `- customer_language: ${describeLanguage(languageContext.customerLanguage)}`,
+          `- language_source: ${languageContext.languageSource}${
+            languageContext.languageSource === "explicit"
+              ? " (the customer directly asked for this language — treat it as a firm, standing preference)"
+              : " (inferred from their messages — still respond in it, but it may update automatically as they write)"
+          }`,
+          `- supported_languages: ${languageContext.supportedLanguages.map(describeLanguage).join(", ")}`,
+          `- default_language: ${describeLanguage(languageContext.defaultLanguage)}`,
+          "Language rules:",
+          "- Respond in customer_language for this entire reply. Do not mix in another language mid-reply except for course names or other proper nouns that don't have a natural translation.",
+          "- Do not randomly switch languages between messages. customer_language is the conversation's established language — keep using it even if the customer's current message contains a stray word or phrase in another language (e.g. a course name in English mid-Russian conversation is not a request to switch to English).",
+          "- If the customer's current message explicitly asks for a different language (e.g. \"answer in Russian\", \"o'zbekcha gapiring\"), customer_language above already reflects that — this was detected and saved automatically before this prompt was built, so you do NOT need to call update_customer for it. Just respond in customer_language as given; do not second-guess or override it based on your own reading of the message.",
+          languageContext.supportedLanguages.some((l) => l.toLowerCase() === languageContext.customerLanguage.toLowerCase())
+            ? null
+            : "- customer_language is not in supported_languages. You were still given it because the customer explicitly asked for or is clearly writing in it — answer in it anyway rather than forcing default_language on them; only fall back to default_language if you genuinely cannot express the reply in customer_language at all.",
+          "- Translating is for natural-language content only (descriptions, explanations, greetings). NEVER translate or alter: prices (the number), currency codes, dates, times, schedules, durations, or course names as identifiers — state them exactly as the tool/data returned them, in whatever language is natural for surrounding words (e.g. \"3 oy\" or \"3 months\" or \"3 месяца\" are all fine ways to say a duration of '3 months', but the underlying fact — 3 months — must never change).",
+          "- If a course's description isn't already written in customer_language, translate/explain it naturally yourself rather than inventing new facts not present in the original description — translation must not add outcomes, benefits, or details the source description doesn't state.",
+        ]
+          .filter((line) => line !== null)
+          .join("\n")
+      : null,
     description
       ? `About the business (this is the ONLY source for what the business does, specializes in, or offers in general terms — do not add to it or infer a category/specialization beyond what it literally says): ${description}`
       : "No business description has been configured yet. Do NOT guess, infer, or state what this business specializes in, what industry it's in, or what kind of services it offers beyond the specific courses you look up — if the customer asks what the business does in general, say a team member can share more, rather than inferring it from the courses on offer.",
@@ -87,7 +143,9 @@ export function buildSystemPrompt(
     "5. If required information is missing (e.g. which course, which time), ask for it rather than guessing.",
     "6. If a request is sensitive, unclear, or outside what you can confidently handle, say a team member will follow up rather than guessing.",
     "7. Keep responses concise and natural, like a helpful staff member texting back — not a formal document.",
-    "8. Respond in the same language the customer is writing in.",
+    languageContext
+      ? "8. Follow the LANGUAGE CONTEXT block above for which language to respond in — do not decide this yourself from the current message alone."
+      : "8. Respond in the same language the customer is writing in.",
     "9. Prefer \"Let me check that for you\" over asserting anything you have not verified with a tool.",
     "10. A lead is 'qualified' once the customer has stated real interest in a SPECIFIC course AND a rough timeframe or availability (e.g. \"I want to start the IELTS course next month\") — not just a general question (\"what courses do you have?\"). Call update_lead to set status to qualified only when both are known; otherwise leave it at its current status and keep gathering information.",
     "11. Write in plain text only — no Markdown (no **bold**, *italic*, __underline__, `code`, # headings, or ~~strikethrough~~). Telegram will display those characters literally, not as formatting, so using them makes your message look broken. If you want to emphasize something, use plain wording instead.",
