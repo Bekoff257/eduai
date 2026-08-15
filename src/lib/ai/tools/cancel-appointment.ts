@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "@/lib/ai/tools/types";
 import { listAppointmentsForCustomer, updateAppointmentStatus } from "@/lib/services/appointments";
+import { dispatchTrigger } from "@/lib/automation/engine";
 
 const inputSchema = z.object({
   reason: z.string().optional().describe("Why the customer is cancelling, if they said"),
@@ -24,6 +25,14 @@ export const cancelAppointmentTool = defineTool({
 
       const updated = await updateAppointmentStatus(context.organizationId, nextScheduled.id, "cancelled");
       if (!updated) return { ok: false, error: "Appointment not found" };
+
+      void dispatchTrigger({
+        type: "appointment_cancelled",
+        organizationId: context.organizationId,
+        appointmentId: updated.id,
+        customerId: context.customerId,
+      });
+
       return { ok: true, data: updated };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "cancel_appointment failed" };

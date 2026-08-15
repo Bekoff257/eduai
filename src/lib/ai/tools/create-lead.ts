@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "@/lib/ai/tools/types";
 import { createLead, findActiveLeadForCustomer, updateLead } from "@/lib/services/leads";
+import { dispatchTrigger } from "@/lib/automation/engine";
 
 const inputSchema = z.object({
   courseId: z.string().uuid().optional().describe("The course the customer is interested in, if known"),
@@ -37,6 +38,17 @@ export const createLeadTool = defineTool({
         notes: input.notes,
         source: "telegram",
       });
+
+      // Not awaited — dispatchTrigger already never throws (catches its
+      // own errors internally), and starting automation runs is not on
+      // the critical path of confirming the lead was recorded.
+      void dispatchTrigger({
+        type: "lead_created",
+        organizationId: context.organizationId,
+        leadId: lead.id,
+        customerId: context.customerId,
+      });
+
       return { ok: true, data: lead };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "create_lead failed" };

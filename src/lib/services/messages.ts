@@ -110,6 +110,33 @@ export async function hasReceivedPriorReply(
 }
 
 /**
+ * Whether the customer has sent a message in this conversation strictly
+ * after `sinceIso` — used by the M6 automation engine's customer_replied
+ * stop condition (src/lib/automation/stop-conditions.ts) to detect "the
+ * customer already responded, so a scheduled follow-up must not fire."
+ * Conversation-scoped rather than customer-scoped like hasReceivedPriorReply
+ * above: a reply in a DIFFERENT conversation for the same customer isn't
+ * evidence they saw or responded to THIS automation's messages.
+ */
+export async function hasCustomerRepliedSince(
+  organizationId: string,
+  conversationId: string,
+  sinceIso: string
+): Promise<boolean> {
+  const supabase = getSupabaseServiceClient();
+  const { count, error } = await supabase
+    .from("messages")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .eq("conversation_id", conversationId)
+    .eq("sender", "customer")
+    .gt("created_at", sinceIso);
+
+  if (error) throw new Error(`hasCustomerRepliedSince failed: ${error.message}`);
+  return (count ?? 0) > 0;
+}
+
+/**
  * Most-recent-first is how Postgres returns it fastest (index on
  * (conversation_id, created_at)); callers that need chronological order
  * for building AI conversation history should reverse the result.

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "@/lib/ai/tools/types";
 import { findActiveLeadForCustomer, updateLead } from "@/lib/services/leads";
+import { dispatchTrigger } from "@/lib/automation/engine";
 
 const inputSchema = z.object({
   status: z
@@ -25,6 +26,18 @@ export const updateLeadTool = defineTool({
 
       const updated = await updateLead(context.organizationId, lead.id, input);
       if (!updated) return { ok: false, error: "Lead not found" };
+
+      if (input.status !== undefined && input.status !== lead.status) {
+        void dispatchTrigger({
+          type: "lead_status_changed",
+          organizationId: context.organizationId,
+          leadId: lead.id,
+          customerId: context.customerId,
+          previousStatus: lead.status,
+          newStatus: input.status,
+        });
+      }
+
       return { ok: true, data: updated };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "update_lead failed" };

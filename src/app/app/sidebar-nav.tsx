@@ -10,6 +10,7 @@ import {
   CoursesIcon,
   AppointmentsIcon,
   TelegramIcon,
+  AutomationsIcon,
   AISettingsIcon,
   OrgSettingsIcon,
 } from "@/components/ui/icons";
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { href: "/app/leads", label: "Leads", Icon: LeadsIcon },
   { href: "/app/courses", label: "Courses", Icon: CoursesIcon },
   { href: "/app/appointments", label: "Appointments", Icon: AppointmentsIcon },
+  { href: "/app/automations", label: "Automations", Icon: AutomationsIcon },
   { href: "/app/telegram", label: "Telegram", Icon: TelegramIcon },
   { href: "/app/ai-settings", label: "AI Settings", Icon: AISettingsIcon },
 ] as const;

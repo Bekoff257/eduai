@@ -74,6 +74,8 @@ export const AISettingsIcon = base(
   </>
 );
 
+export const AutomationsIcon = base(<path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />);
+
 export const OrgSettingsIcon = base(
   <>
     <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />

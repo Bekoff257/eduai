@@ -19,6 +19,7 @@ import { sendTelegramMessage } from "@/lib/telegram/client";
 import { stripMarkdownForTelegram } from "@/lib/telegram/format";
 import { withConversationLock } from "@/lib/telegram/conversation-lock";
 import { runAgent } from "@/lib/ai/agent";
+import { dispatchTrigger } from "@/lib/automation/engine";
 import { startTimer, timed } from "@/lib/timing";
 import type { TelegramUpdate } from "@/lib/telegram/webhook-types";
 import type { InboundMessage } from "@/lib/ai/types";
@@ -371,6 +372,12 @@ async function processInboundTelegramMessage(
   // (see docs/architecture.md), not just a log line.
   if (agentResponse.needsHumanAttention || !sendResult.ok) {
     await updateConversationStatus(organizationId, conversation.id, "needs_attention");
+    void dispatchTrigger({
+      type: "conversation_needs_attention",
+      organizationId,
+      conversationId: conversation.id,
+      customerId: customer.id,
+    });
   }
 }
 

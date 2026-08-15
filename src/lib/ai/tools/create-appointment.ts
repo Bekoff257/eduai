@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineTool } from "@/lib/ai/tools/types";
 import { createAppointment } from "@/lib/services/appointments";
 import { findActiveLeadForCustomer, updateLead } from "@/lib/services/leads";
+import { dispatchTrigger } from "@/lib/automation/engine";
 
 const inputSchema = z.object({
   courseGroupId: z.string().uuid().describe("The course_group id to book into, from check_available_appointments"),
@@ -38,6 +39,14 @@ export const createAppointmentTool = defineTool({
       if (activeLead) {
         await updateLead(context.organizationId, activeLead.id, { status: "appointment_booked" });
       }
+
+      void dispatchTrigger({
+        type: "appointment_created",
+        organizationId: context.organizationId,
+        appointmentId: result.appointment.id,
+        customerId: context.customerId,
+        leadId: activeLead?.id ?? null,
+      });
 
       return { ok: true, data: result.appointment };
     } catch (err) {
